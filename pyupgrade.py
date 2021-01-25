@@ -354,29 +354,28 @@ class Py2CompatibleVisitor(ast.NodeVisitor):
         self.is_literal: Dict[Offset, Union[ast.Is, ast.IsNot]] = {}
 
     def visit_Call(self, node: ast.Call) -> None:
-        if (
-                isinstance(node.func, ast.Name) and
-                node.func.id == 'set' and
-                len(node.args) == 1 and
-                not node.keywords and
-                isinstance(node.args[0], SET_TRANSFORM)
-        ):
-            arg, = node.args
-            key = _ast_to_offset(node.func)
-            if isinstance(arg, (ast.List, ast.Tuple)) and not arg.elts:
-                self.set_empty_literals[key] = arg
-            else:
-                self.sets[key] = arg
-        elif (
-                isinstance(node.func, ast.Name) and
-                node.func.id == 'dict' and
-                len(node.args) == 1 and
-                not node.keywords and
-                isinstance(node.args[0], (ast.ListComp, ast.GeneratorExp)) and
-                isinstance(node.args[0].elt, (ast.Tuple, ast.List)) and
-                len(node.args[0].elt.elts) == 2
-        ):
-            self.dicts[_ast_to_offset(node.func)] = node.args[0]
+        if isinstance(node.func, ast.Name):
+            if (
+                node.func.id == 'set'
+                and len(node.args) == 1
+                and not node.keywords
+                and isinstance(node.args[0], SET_TRANSFORM)
+            ):
+                arg, = node.args
+                key = _ast_to_offset(node.func)
+                if isinstance(arg, (ast.List, ast.Tuple)) and not arg.elts:
+                    self.set_empty_literals[key] = arg
+                else:
+                    self.sets[key] = arg
+            elif (
+                node.func.id == 'dict'
+                and len(node.args) == 1
+                and not node.keywords
+                and isinstance(node.args[0], (ast.ListComp, ast.GeneratorExp))
+                and isinstance(node.args[0].elt, (ast.Tuple, ast.List))
+                and len(node.args[0].elt.elts) == 2
+            ):
+                self.dicts[_ast_to_offset(node.func)] = node.args[0]
         self.generic_visit(node)
 
     def visit_Compare(self, node: ast.Compare) -> None:
@@ -511,9 +510,8 @@ def _remove_u_prefix(token: Token) -> Token:
     prefix, rest = parse_string_literal(token.src)
     if 'u' not in prefix.lower():
         return token
-    else:
-        new_prefix = prefix.replace('u', '').replace('U', '')
-        return token._replace(src=new_prefix + rest)
+    new_prefix = prefix.replace('u', '').replace('U', '')
+    return token._replace(src=new_prefix + rest)
 
 
 def _fix_ur_literals(token: Token) -> Token:
@@ -943,30 +941,29 @@ def _percent_to_format(s: str) -> str:
         s = s.replace('{', '{{').replace('}', '}}')
         if fmt is None:
             return s
+        key, conversion_flag, width, precision, conversion = fmt
+        if conversion == '%':
+            return s + '%'
+        parts = [s, '{']
+        if width and conversion == 's' and not conversion_flag:
+            conversion_flag = '>'
+        if conversion == 's':
+            conversion = ''
+        if key:
+            parts.append(key)
+        if conversion in {'r', 'a'}:
+            converter = f'!{conversion}'
+            conversion = ''
         else:
-            key, conversion_flag, width, precision, conversion = fmt
-            if conversion == '%':
-                return s + '%'
-            parts = [s, '{']
-            if width and conversion == 's' and not conversion_flag:
-                conversion_flag = '>'
-            if conversion == 's':
-                conversion = ''
-            if key:
-                parts.append(key)
-            if conversion in {'r', 'a'}:
-                converter = f'!{conversion}'
-                conversion = ''
-            else:
-                converter = ''
-            if any((conversion_flag, width, precision, conversion)):
-                parts.append(':')
-            if conversion_flag:
-                parts.append(_simplify_conversion_flag(conversion_flag))
-            parts.extend(x for x in (width, precision, conversion) if x)
-            parts.extend(converter)
-            parts.append('}')
-            return ''.join(parts)
+            converter = ''
+        if any((conversion_flag, width, precision, conversion)):
+            parts.append(':')
+        if conversion_flag:
+            parts.append(_simplify_conversion_flag(conversion_flag))
+        parts.extend(x for x in (width, precision, conversion) if x)
+        parts.extend(converter)
+        parts.append('}')
+        return ''.join(parts)
 
     return ''.join(_handle_part(part) for part in parse_percent_format(s))
 
@@ -2464,9 +2461,7 @@ def _starargs(call: ast.Call) -> bool:
 
 
 def _format_params(call: ast.Call) -> Dict[str, str]:
-    params = {}
-    for i, arg in enumerate(call.args):
-        params[str(i)] = _unparse(arg)
+    params = {str(i): _unparse(arg) for i, arg in enumerate(call.args)}
     for kwd in call.keywords:
         # kwd.arg can't be None here because we exclude starargs
         assert kwd.arg is not None
